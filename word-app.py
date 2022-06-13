@@ -1,12 +1,13 @@
 import sqlite3
 import textwrap
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import random
+import os
+
+#################### DATABASE ####################
 
 sqliteConnection = sqlite3.connect('words.db')
-
-####################################################################################################
 
 def migrate_database():
   create_words_table_if_not_exists_query = """
@@ -24,7 +25,50 @@ def migrate_database():
   cursor.execute(create_words_table_if_not_exists_query)
   cursor.close()
 
-####################################################################################################
+def save_new_word(new_word):
+  create_new_word_query = f"""
+    INSERT INTO words (word, word_translation, example_use, tags, next_ask_date, ask_results) VALUES
+    (?, ?, ?, ?, ?, ?);
+  """
+  cursor = sqliteConnection.cursor()
+  cursor.execute(
+    create_new_word_query,
+    (new_word['word'], new_word['word_translation'], new_word['example_use'], ",".join(new_word['tags']), new_word['next_ask_date'], json.dumps(new_word['ask_results']))
+  )
+  sqliteConnection.commit()
+  cursor.close()
+
+def update_word(word):
+  update_words_query = """
+    UPDATE words
+    SET word=?, word_translation=?, example_use=?, tags=?, next_ask_date=?, ask_results=?
+    WHERE id = ?;
+  """
+  cursor = sqliteConnection.cursor()
+  cursor.execute(update_words_query, (word['word'], word['word_translation'], word['example_use'], word['tags'], word['next_ask_date'], json.dumps(word['ask_results']), word['id']))
+  sqliteConnection.commit()
+  cursor.close()
+
+def find_words(offset=0, limit=100):
+  select_for_words_query = f"""
+    SELECT id, word, word_translation, example_use, tags, next_ask_date, ask_results
+    FROM words
+    WHERE next_ask_date <= date()
+    ORDER BY id desc
+    LIMIT {offset},{limit};
+  """
+  cursor = sqliteConnection.cursor()
+  cursor.execute(select_for_words_query)
+  rows = cursor.fetchall()
+  cursor.close()
+  return list(map(lambda x: {'id': x[0], 'word': x[1], 'word_translation': x[2], 'example_use': x[3], 'tags': x[4], 'next_ask_date': x[5], 'ask_results': json.loads(x[6])}, rows))
+
+##################### UTILS ######################
+
+def clear_screen():
+  os.system('clear')
+
+#################### ADD WORD ####################
 
 def _get_word():
   while(True):
@@ -47,32 +91,24 @@ def _get_example_use():
   return user_input
 
 def _get_tags():
-  user_input = input("Enter word tags separated by ',' (optional): ")
-  comma_separated_input = user_input.split(',')
-  stripped_input = list(map(lambda x: x.strip(), comma_separated_input))
-  filtered_out_input = list(filter(lambda x: len(x) > 0, stripped_input))
-  return filtered_out_input
-
-def _persist_new_word(new_word, new_word_translation, new_word_example_use, new_word_tags):
-  create_new_word_query = f"""
-    INSERT INTO words (word, word_translation, example_use, tags, next_ask_date, ask_results) VALUES
-    (?, ?, ?, ?, date(), '[]');
-  """
-  cursor = sqliteConnection.cursor()
-  cursor.execute(
-    create_new_word_query,
-    (new_word, new_word_translation, new_word_example_use, ",".join(new_word_tags).replace("'", "''"))
-  )
-  sqliteConnection.commit()
-  cursor.close()
+  while(True):
+    user_input = input("Enter tag: 'w' -> word, 'p' -> phersalVerb, 'c' -> collocation: ")
+    tag = {'w': 'word', 'p': 'phersalVerb', 'c': 'collocation'}.get(user_input, None)
+    if tag is None:
+      print("Tag accept one of values: 'w' -> word, 'p' -> phersalVerb, 'c' -> collocation")
+      continue
+    return [tag]
 
 def start_add_word_state_machine():
   while(True):
+    clear_screen()
     print("Add new word pannel. Follow instructions:")
     new_word = _get_word()
     new_word_translation = _get_word_translation()
     new_word_example_use = _get_example_use()
     new_word_tags = _get_tags()
+    clear_screen()
+    print("Add new word pannel.")
     print(textwrap.dedent(f"""\
       Does all data correct:
       word: {new_word}
@@ -86,8 +122,10 @@ def start_add_word_state_machine():
         print("Exiting from adding word pannel.")
         return
       elif user_input == "y":
-        _persist_new_word(new_word, new_word_translation, new_word_example_use, new_word_tags)
-        print("Word has been added")
+        save_new_word({
+          'word': new_word, 'word_translation': new_word_translation, 'example_use': new_word_example_use, 'tags': new_word_tags, 'next_ask_date': date.today(), 'ask_results': []
+        })
+        input("Word has been added. Press 'Enter' to continue...")
         return
       elif user_input == "n":
         print("Incorect word data... Try once again.")
@@ -95,75 +133,69 @@ def start_add_word_state_machine():
       else:
         print("Unknown command. Try again one more time.")
 
-
-####################################################################################################
+#################### ASK WORD ####################
 
 def _get_words_to_ask():
-  cursor = sqliteConnection.cursor()
-  select_for_words_query = """
-    SELECT id, word, word_translation, example_use, tags, next_ask_date, ask_results
-    FROM words
-    WHERE next_ask_date <= date()
-    LIMIT 100;
-  """
-  cursor.execute(select_for_words_query)
-  rows = cursor.fetchall()
-  cursor.close()
-  random.shuffle(rows)
-  selected_rows = rows[:20]
-  return list(map(lambda x: {'id': x[0], 'word': x[1], 'word_translation': x[2], 'example_use': x[3], 'tags': x[4], 'next_ask_date': x[5], 'ask_results': json.loads(x[6])}, selected_rows))
+  words = find_words(offset=0, limit=100)
+  random.shuffle(words)
+  return words[:20]
 
 def _calculate_next_ask_date(word):
   if not word['ask_results'][-1]['correct']:
     return date.today().strftime("%Y-%m-%d")
-  score = len(list(filter(lambda x: x, map(lambda x: x['correct'], word['ask_results'][-5:]))))
+  score = len(list(filter(lambda x: x, map(lambda x: x['correct'], word['ask_results'][-5:])))) - len(list(filter(lambda x: x, map(lambda x: not x['correct'], word['ask_results'][-5:]))))
+  if score < 0:
+    return date.today().strftime("%Y-%m-%d")
   return {
     0: date.today(),
-    1: date.today() + timedelta(days=1),
-    2: date.today() + timedelta(days=3),
-    3: date.today() + timedelta(days=5),
-    4: date.today() + timedelta(days=10),
-    5: date.today() + timedelta(days=15)
+    1: date.today() + timedelta(days=2),
+    2: date.today() + timedelta(days=5),
+    3: date.today() + timedelta(days=8),
+    4: date.today() + timedelta(days=13),
+    5: date.today() + timedelta(days=21)
   }.get(score).strftime("%Y-%m-%d")
-
-def _save_word(word):
-  cursor = sqliteConnection.cursor()
-  update_words_query = """
-    UPDATE words
-    SET word=?, word_translation=?, example_use=?, tags=?, next_ask_date=?, ask_results=?
-    WHERE id = ?;
-  """
-  cursor.execute(update_words_query, (word['word'], word['word_translation'], word['example_use'], word['tags'], word['next_ask_date'], json.dumps(word['ask_results']), word['id']))
-  sqliteConnection.commit()
-  cursor.close()
 
 def _mark_as_correct(word, words_to_ask):
   if not word.get('alredy_answered', False):
     word['ask_results'].append({'correct': True, 'asked_at': date.today().strftime("%Y-%m-%d")})
     word['next_ask_date'] = _calculate_next_ask_date(word)
-    _save_word(word)
+    update_word(word)
 
 def _mark_as_incorrect(word, words_to_ask):
   if not word.get('alredy_answered', False):
     word['ask_results'].append({'correct': False, 'asked_at': date.today().strftime("%Y-%m-%d")})
     word['next_ask_date'] = _calculate_next_ask_date(word)
-    _save_word(word)
+    update_word(word)
   word['alredy_answered'] = True
   words_to_ask.append(word)
 
 def start_practice_words_state_machine():
-  print("Practice word pannel.")
   words_to_ask = _get_words_to_ask()
   if len(words_to_ask) == 0:
+    clear_screen()
+    print("Practice word pannel.")
     print("No words to ask; try again tommorow.")
+    input("Press 'Enter' to continue...")
     return
   while len(words_to_ask) > 0:
     word = words_to_ask.pop(0)
-    print("Word translation: " + word['word_translation'])
-    print("Tags: " + str(word['tags']))
-    input("Press 'Enter' any button to show answer")
-    print("Word: " + word['word'])
-    print("Example use: " + word['example_use'])
+    clear_screen()
+    print(textwrap.dedent(f"""\
+      Practice word pannel.
+      word translation: {word['word_translation']}
+      tags: {str(word['tags'])}
+      word: **********
+      example use: **********"""
+    ))
+    input("Press 'Enter' to show answer...")
+    clear_screen()
+    print(textwrap.dedent(f"""\
+      Practice word pannel.
+      word translation: {word['word_translation']}
+      tags: {str(word['tags'])}
+      word: {word['word']}
+      example use: {word['example_use']}"""
+    ))
     while True:
       user_input = input("Actions: 'y' -> correct answer, 'n' -> incorrect answer, 'e' -> exit session: ")
       if user_input == "e":
@@ -177,12 +209,19 @@ def start_practice_words_state_machine():
         break
       else:
         print("Unknown command. Try again one more time.")
-  print("Finishing practise word session.")
+  clear_screen()
+  print("Practice word pannel.")
+  print("Practice session finished.")
+  input("Press 'Enter' to continue...")
 
-####################################################################################################
+################## MAIN PROGRAM ##################
 
 def start_main_state_machine():
+  shoud_clean_screen = True
   while(True):
+    if shoud_clean_screen:
+      clear_screen()
+      shoud_clean_screen = False
     print("Main pannel. What do you want to do?")
     user_input = input("Actions: 'e' -> exit, 'a' -> add new word, 'p' -> pratcise words: ")
     if user_input == "e":
@@ -190,10 +229,14 @@ def start_main_state_machine():
       return
     elif user_input == "a":
       start_add_word_state_machine()
+      shoud_clean_screen = True
     elif user_input == "p":
       start_practice_words_state_machine()
+      shoud_clean_screen = True
     else:
       print("Unknown command. Try again one more time.")
+
+###################### MAIN ######################
 
 migrate_database()
 start_main_state_machine()
