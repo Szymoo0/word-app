@@ -49,12 +49,18 @@ def update_word(word):
   sqliteConnection.commit()
   cursor.close()
 
-def find_words(offset=0, limit=100):
+def where_next_ask_date_is_today_or_earlier():
+  return "AND next_ask_date <= date()"
+
+def where_word_is(word_like):
+  return f"""AND word = '{word_like.replace("'", "''")}'"""
+
+def find_words(offset=0, limit=100, filters=[]):
   select_for_words_query = f"""
     SELECT id, word, word_translation, example_use, tags, next_ask_date, ask_results
     FROM words
-    WHERE next_ask_date <= date()
-    ORDER BY id desc
+    WHERE 1=1 {" ".join(filters)}
+    ORDER BY id asc
     LIMIT {offset},{limit};
   """
   cursor = sqliteConnection.cursor()
@@ -73,10 +79,14 @@ def clear_screen():
 def _get_word():
   while(True):
     user_input = input("Enter new word: ").strip()
-    if len(user_input) > 0:
-      return user_input
-    else:
+    if len(user_input) is 0:
       print("Word should have at least one letter")
+      continue
+    same_words = find_words(offset=0, limit=1, filters=[where_word_is(user_input)])
+    if len(same_words) > 0:
+      print(f"The same word is alredy defined (with id: {same_words[0]['id']})")
+      continue
+    return user_input
 
 def _get_word_translation():
   while(True):
@@ -88,7 +98,7 @@ def _get_word_translation():
 
 def _get_example_use():
   user_input = input("Enter new word example use (optional): ").strip()
-  return user_input
+  return user_input or ""
 
 def _get_tags():
   while(True):
@@ -133,10 +143,60 @@ def start_add_word_state_machine():
       else:
         print("Unknown command. Try again one more time.")
 
+################### LIST WORDS ###################
+
+def _truncate_text(text, length):
+  if length >= len(text):
+    return text
+  else:
+    return text[:length-2] + '..'
+
+def _print_table(words_page):
+  print(f"| {'id':<6} | {'word':<30} | {'translation':<30} | {'tags':<15} | {'example_use':<30} |")
+  print(f"|{'-'*8}|{'-'*32}|{'-'*32}|{'-'*17}|{'-'*32}|")
+  for word in words_page:
+    line_parts = [
+      f"| {_truncate_text(str(word['id']), 6):<6} ",
+      f"| {_truncate_text(word['word'], 30):<30} ",
+      f"| {_truncate_text(word['word_translation'], 30):<30} ",
+      f"| {_truncate_text(str(word['tags']), 15):<15} ",
+      f"| {_truncate_text(word['example_use'], 30):<30} |",
+    ]
+    print("".join(line_parts))
+  if len(words_page) == 0:
+    print(f"|{'No words to show':^125}|")
+
+def start_list_words_state_machine():
+  page = 0
+  size = 10
+  while True:
+    clear_screen()
+    print("Word list.")
+    words_page = find_words(offset=page*size, limit=size, filters=[])
+    _print_table(words_page)
+    while True:
+      user_input = input("Actions: 'p' -> previous page, 'n' -> next page, 'e' -> exit: ")
+      if user_input == "p":
+        if page == 0:
+          input("Can't get previous page because this is the first page. Pres 'Enter' to continue...")
+          break
+        page = page - 1
+        break
+      elif user_input == "n":
+        if len(words_page) is not size:
+          input("Can't get next page because this is the last page. Pres 'Enter' to continue...")
+          break
+        page = page + 1
+        break
+      elif user_input == "e":
+        return
+      else:
+        print("Unknown command. Try again one more time.")
+
 #################### ASK WORD ####################
 
 def _get_words_to_ask():
-  words = find_words(offset=0, limit=100)
+  words = find_words(offset=0, limit=100, filters=[where_next_ask_date_is_today_or_earlier()])
   random.shuffle(words)
   return words[:20]
 
@@ -223,12 +283,15 @@ def start_main_state_machine():
       clear_screen()
       shoud_clean_screen = False
     print("Main pannel. What do you want to do?")
-    user_input = input("Actions: 'e' -> exit, 'a' -> add new word, 'p' -> pratcise words: ")
+    user_input = input("Actions: 'e' -> exit, 'a' -> add new word, 'l' -> list words, 'p' -> pratcise words: ")
     if user_input == "e":
       print("Exiting program. Bye!")
       return
     elif user_input == "a":
       start_add_word_state_machine()
+      shoud_clean_screen = True
+    elif user_input == "l":
+      start_list_words_state_machine()
       shoud_clean_screen = True
     elif user_input == "p":
       start_practice_words_state_machine()
