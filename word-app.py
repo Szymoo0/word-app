@@ -18,7 +18,8 @@ class FindWordsBuilder:
     self.id_is_not = None
     self.word_is = None
     self.word_like = None
-    self.ask_date_is_due = None
+    self.ask_date_is_due = False
+    self.order_by_ask_date_asc = False
   
   def with_offset(self, offset):
     self.offset = offset
@@ -47,6 +48,10 @@ class FindWordsBuilder:
   def where_ask_date_is_due(self):
     self.ask_date_is_due = True
     return self
+  
+  def order_by_ask_date(self):
+    self.order_by_ask_date_asc = True
+    return self
 
   def find(self):
     select_for_words_query = f"""
@@ -58,7 +63,7 @@ class FindWordsBuilder:
       {"AND word = ?" if self.word_is is not None else ""}
       {"AND word like ?" if self.word_like is not None else ""}
       {"AND next_ask_date <= date()" if self.ask_date_is_due else ""}
-      ORDER BY id asc
+      ORDER BY {"next_ask_date asc, " if self.order_by_ask_date_asc else ""} id asc
       LIMIT ?,?;
     """
     cursor = self.connection.cursor()
@@ -255,8 +260,8 @@ class EditWordScreen(Screen):
         tags: {str(word_to_edit['tags'])}"""
       ))
       first_action = self._get_action(
-        prompt_text = "Actions: 'y' -> edit, 'e' -> go to previous page: ",
-        action_selectors = [r"^y$", r"^e$"]
+        prompt_text = "Actions: 'd' -> edit, 'e' -> go to previous page: ",
+        action_selectors = [r"^d$", r"^e$"]
       )
       if first_action == "e":
         return ExecutionResult.BREAK
@@ -401,19 +406,28 @@ class AskWordScreen(Screen):
       example use: {word['example_use']}"""
     ))
     action = self._get_action(
-      prompt_text = "Actions: 'y' -> correct answer, 'n' -> incorrect answer, 'e' -> exit session: ",
-      action_selectors = [r"^y$", r"^n$", r"^e$"]
+      prompt_text = "Actions: 'y' -> correct answer, 'n' -> incorrect answer, 'd' -> edit word, 'e' -> exit session: ",
+      action_selectors = [r"^y$", r"^n$", r"^d$", r"^e$"]
     )
     if action == "y":
       self._mark_as_correct(word)
     elif action == "n":
       self._mark_as_incorrect(word)
+    elif action == "d":
+      print('This action will terminate learning session. Do you want to continue?')
+      edit_action = self._get_action(
+        prompt_text = "Actions: 'y' -> yes, 'n' -> no: ",
+        action_selectors = [r"^y$", r"^n$"]
+      )
+      if edit_action == "y":
+        EditWordScreen().display({'id': int(word['id'])})
+        return ExecutionResult.BREAK
     elif action == "e":
       return ExecutionResult.BREAK
     return ExecutionResult.CONTINUE
   
   def _get_words_to_ask(self):
-    words = word_repository.find_words().with_limit(100).where_ask_date_is_due().find()
+    words = word_repository.find_words().with_limit(100).where_ask_date_is_due().order_by_ask_date().find()
     random.shuffle(words)
     return words[:20]
   
