@@ -101,7 +101,7 @@ class WordRepository:
     cursor = self.connection.cursor()
     cursor.execute(
       create_new_word_query,
-      (new_word['word'], new_word['word_translation'], new_word['example_use'], ",".join(new_word['tags']), new_word['next_ask_date'], json.dumps(new_word['ask_results']))
+      (new_word['word'], new_word['word_translation'], new_word['example_use'], new_word['tags'], new_word['next_ask_date'], json.dumps(new_word['ask_results']))
     )
     self.connection.commit()
     cursor.close()
@@ -414,14 +414,15 @@ class AskWordScreen(Screen):
     elif action == "n":
       self._mark_as_incorrect(word)
     elif action == "d":
-      print('This action will terminate learning session. Do you want to continue?')
+      print('This action will remove word from current learning session. Do you want to continue?')
       edit_action = self._get_action(
         prompt_text = "Actions: 'y' -> yes, 'n' -> no: ",
         action_selectors = [r"^y$", r"^n$"]
       )
       if edit_action == "y":
         EditWordScreen().display({'id': int(word['id'])})
-        return ExecutionResult.BREAK
+      else:
+        self.words_to_ask.insert(0, word)
     elif action == "e":
       return ExecutionResult.BREAK
     return ExecutionResult.CONTINUE
