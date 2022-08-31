@@ -4,6 +4,7 @@ import json
 from datetime import date, timedelta
 import random
 import os
+import platform
 from enum import Enum
 import re
 
@@ -147,7 +148,10 @@ class Screen():
       raise Exception("Bad execute implementation")
 
   def _clear_screen(self):
-    os.system('clear')
+    if platform.system() == 'Windows':
+      os.system('cls')
+    else:
+      os.system('clear')
 
   def _get_action(
     self,
@@ -186,10 +190,10 @@ class AddWordScreen(Screen):
     print("Add new word pannel.")
     print("Does all data correct:")
     print(textwrap.dedent(f"""\
-      word: {new_word['word']}
-      word translation: {new_word['word_translation']}
-      example use: {new_word['example_use']}
-      tags: {new_word['tags']}"""
+      word:           {new_word['word']}
+      translation:    {new_word['word_translation']}
+      example use:    {new_word['example_use']}
+      tags:           {new_word['tags']}"""
     ))
     action = self._get_action(
       prompt_text = "Actions: 'y' -> data correct, 'n' -> data incorrect, 'e' -> exit to previous menu: ",
@@ -254,10 +258,10 @@ class EditWordScreen(Screen):
     else:
       word_to_edit = words[0]
       print(textwrap.dedent(f"""\
-        word: {word_to_edit['word']}
-        word translation: {word_to_edit['word_translation']}
-        example use: {word_to_edit['example_use']}
-        tags: {str(word_to_edit['tags'])}"""
+        word:           {word_to_edit['word']}
+        translation:    {word_to_edit['word_translation']}
+        example use:    {word_to_edit['example_use']}
+        tags:           {str(word_to_edit['tags'])}"""
       ))
       first_action = self._get_action(
         prompt_text = "Actions: 'd' -> edit, 'e' -> go to previous page: ",
@@ -272,10 +276,10 @@ class EditWordScreen(Screen):
       word_to_edit['tags'] = self._prompt_for_tags(word_to_edit)
       print("Does all edited data correct:")
       print(textwrap.dedent(f"""\
-        word: {word_to_edit['word']}
-        word translation: {word_to_edit['word_translation']}
-        example use: {word_to_edit['example_use']}
-        tags: {word_to_edit['tags']}"""
+        word:           {word_to_edit['word']}
+        translation:    {word_to_edit['word_translation']}
+        example use:    {word_to_edit['example_use']}
+        tags:           {word_to_edit['tags']}"""
       ))
       second_action = self._get_action(
         prompt_text = "Actions: 'y' -> confirm changes, 'n' -> reject changes, 'e' -> go to previous page: ",
@@ -391,19 +395,19 @@ class AskWordScreen(Screen):
     self._clear_screen()
     print(textwrap.dedent(f"""\
       Practice word pannel.
-      word translation: {word['word_translation']}
-      tags: {str(word['tags'])}
-      word: **********
-      example use: **********"""
+      translation:    {word['word_translation']}
+      tags:           {str(word['tags'])}
+      word:           **********
+      example use:    **********"""
     ))
     input("Press 'Enter' to show answer...")
     self._clear_screen()
     print(textwrap.dedent(f"""\
       Practice word pannel.
-      word translation: {word['word_translation']}
-      tags: {str(word['tags'])}
-      word: {word['word']}
-      example use: {word['example_use']}"""
+      translation:    {word['word_translation']}
+      tags:           {str(word['tags'])}
+      word:           {word['word']}
+      example use:    {word['example_use']}"""
     ))
     action = self._get_action(
       prompt_text = "Actions: 'y' -> correct answer, 'n' -> incorrect answer, 'd' -> edit word, 'e' -> exit session: ",
